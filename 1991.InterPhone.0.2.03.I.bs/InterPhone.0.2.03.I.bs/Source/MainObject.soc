@@ -1,0 +1,234 @@
+/*
+	MainObject.soc
+	
+	aug 92'
+	by Jolly alias Pat
+*/
+
+
+void 	recorder(id);
+int	recorded(SNDSoundStruct *,int,int);
+int 	player(id);
+int	isplayed(SNDSoundStruct *,int,int);
+
+
+
+/* global variables */
+
+mutex_t		prt;
+
+
+/* recorder variables */
+
+volatile int	recrecorded=0;
+volatile int	recsok;
+mutex_t		record;	
+condition_t	recdone;
+
+
+/* player variables */
+
+volatile int	plyplayed=1000;
+volatile int	plysok;
+mutex_t		play;
+condition_t	plydone;
+
+
+
+int sigsok()
+{
+	int a;
+	fprintf(stderr,"signal raised\n");
+	shutdown(recsok,2);
+	close(recsok);
+	shutdown(plysok,2);
+	close(plysok);
+	for(a=1;a<=BUFFNO;a++)
+		SNDStop(plyplayed+a);
+	SNDUnreserve(SND_ACCESS_OUT);
+	
+	
+	exit(0);
+	return 0;
+}
+
+
+void init_mutex(void)
+{
+	
+	signal(SIGTERM,sigsok);
+	signal(SIGIO,SIG_IGN);
+	signal(SIGURG,SIG_IGN);
+	signal(SIGPIPE,SIG_IGN);
+	
+	prt	=mutex_alloc();
+	record	=mutex_alloc();
+	play	=mutex_alloc();
+	
+	recdone	=condition_alloc();
+	plydone	=condition_alloc();
+	
+	return;
+}
+
+
+
+
+/***************************************** recorder *********************************/ 
+
+void recorder(id obj)
+{
+	int	a,err;
+	int	recwillrec=recrecorded+101;
+	SNDSoundStruct *recbuff[BUFFNO];
+	
+	recrecorded+=100;
+	recsok		=[obj getssok];
+	for(a=0;a<BUFFNO;a++)
+	{
+		SNDAlloc(&recbuff[a],SNDLEN,SND_FORMAT_MULAW_8,SND_RATE_CODEC,1,0);	
+		SNDSetCompressionOptions(recbuff[a],0,8);
+	}
+	do
+	{
+		mutex_lock(record);
+		while( recrecorded < recwillrec-BUFFNO )
+			condition_wait(recdone,record);
+		mutex_unlock(record);
+
+		err=SNDWait(recrecorded); // to be absolutely sure;
+		if(err)
+		{
+			mutex_lock(prt);
+			fprintf(stderr,"Record :%s\n",SNDSoundError(err));
+			mutex_unlock(prt);
+		}
+		a=recwillrec%BUFFNO;
+		err=SNDStartRecording(recbuff[a],recwillrec,10,0,SND_NULL_FUN,recorded);	
+		if(err)
+		{
+			mutex_lock(prt);
+			fprintf(stderr,"Record :%s\n",SNDSoundError(err));
+			mutex_unlock(prt);
+		}
+		else
+			recwillrec++;
+	}
+	while(recsok!=-1);
+	[obj bye];
+	cthread_exit(0);
+}
+
+
+int recorded(SNDSoundStruct *s,int tag,int err)
+{
+	char *adr;
+
+	adr=(void *)((char *)s+s->dataLocation);
+	
+	mutex_lock(record);
+	while( recrecorded!=tag-1 )
+		condition_wait(recdone,record);
+	mutex_unlock(record);
+	
+	
+	err=send(recsok,adr,SNDLEN,0);
+	if(err==-1)
+	{
+		shutdown(recsok,2);
+		close(recsok);
+		recsok=-1;
+	}
+	
+	mutex_lock(record);
+	recrecorded=tag;
+	mutex_unlock(record);
+	condition_signal(recdone);
+
+	return 0;
+}
+
+
+
+
+/***************************************** player *********************************/ 
+
+
+int player(id obj)
+{
+	int	a,b,err;
+	char *adr;
+	int	plywillplay=plyplayed+101;
+	SNDSoundStruct *plybuff[BUFFNO];
+	
+	plyplayed+=100;
+	if(a=vfork()) return a;
+
+	plysok		=[obj getcsok];
+	for(a=0;a<BUFFNO;a++)
+	{
+		SNDAlloc(&plybuff[a],SNDLEN,SND_FORMAT_MULAW_8,SND_RATE_CODEC,1,0);	
+		adr=((char *)plybuff[a]+plybuff[a]->dataLocation);
+		for(b=0;b<SNDLEN;b++)
+			adr[b]=127;
+	}
+	do
+	{
+		mutex_lock(play);
+		while( plyplayed < plywillplay-BUFFNO )
+			condition_wait(plydone,play);
+		mutex_unlock(play);
+
+		a=plywillplay%BUFFNO;
+		adr=(void *)((char *)plybuff[a]+plybuff[a]->dataLocation);
+		
+		do
+		err=recv(plysok,adr,SNDLEN,0);
+		while(err==0);
+		if(err==-1)
+		{
+			shutdown(plysok,2);
+			close(plysok);
+			plysok=-1;
+			mutex_lock(prt);
+			fprintf(stderr,"PLAY DOWN\n");
+			mutex_unlock(prt);
+			exit(0);
+		}
+		else
+		{
+			err=SNDStartPlaying(plybuff[a],plywillplay,10,0,SND_NULL_FUN,isplayed);	
+		   	if(err)
+			{
+				mutex_lock(prt);
+				fprintf(stderr,"Play :%s\n",SNDSoundError(err));
+				mutex_unlock(prt);
+			}
+			else
+				plywillplay++;
+		}
+	}
+	while(plysok!=-1);
+	cthread_exit(0);
+	return 0; // this is for the compiler B)
+}
+
+
+int isplayed(SNDSoundStruct *s,int tag,int err)
+{
+
+	mutex_lock(play);
+	while(plyplayed!=tag-1)
+		condition_wait(plydone,play);
+	plyplayed=tag;
+	mutex_unlock(play);
+	condition_signal(plydone);
+
+	return 0;
+}
+
+
+	
+	
+
+

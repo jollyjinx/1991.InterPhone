@@ -1,0 +1,6 @@
+FirstResponder = {ACTIONS = {}; SUPERCLASS = Object; };
+InfoObject = {
+    ACTIONS = {"showInfoPanel:" = "showInfoPanel:"; }; 
+    OUTLETS = {InfoPanel = InfoPanel; }; 
+    SUPERCLASS = Object; 
+};

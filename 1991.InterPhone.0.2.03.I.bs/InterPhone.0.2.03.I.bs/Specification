@@ -1,0 +1,17 @@
+
+
+InterPhone Socket Communication Specification
+
+Standard Port : $2001  ( changeable ) ( thnx to arthur c. clarke )
+
+Client	: connects to the server 
+Server	: sends		"NeXT_Sound_Server_by_Jolly"
+Client	: sends		"NeXT_Sound_Client_by_Jolly"
+Server	: sends 	"connection established"
+	 	or 	"busy"
+		or 	"autoanswer"
+Client	: sends 	Username
+Client	: sends 	Portnumber
+Server	: sends		"ok"
+Server	: sends		SoundData
+  

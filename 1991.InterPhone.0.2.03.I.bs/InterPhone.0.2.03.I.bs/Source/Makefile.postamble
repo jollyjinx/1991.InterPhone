@@ -1,0 +1,1 @@
+MainObject.o	:MainObject.c MainObject.soc MainObject.h MainObject.m
